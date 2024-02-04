@@ -2,16 +2,16 @@
 	"folders":
 	[
 		{
-			"path": "."
+			"path": ".",
 		},
 		{
-			"path": "/Users/guenter/Documents/Arduino/libraries/WiHomeComm"
+			"path": "/Users/guenter/Documents/Arduino/libraries/WiHomeComm",
 		},
 		{
-			"path": "/Users/guenter/Documents/Arduino/libraries/DS18B20"
+			"path": "/Users/guenter/Documents/Arduino/libraries/ConfigFileJSON",
 		},
 		{
-			"path": "/Users/guenter/Documents/Arduino/libraries/ConfigFileJSON"
+			"path": "/Users/guenter/Documents/Arduino/libraries/DS18B20",
 		}
-	]
+	],
 }

@@ -12,13 +12,13 @@
 #include "NoBounceButtons.h"
 #include "SignalLED.h"
 
-#define PWM_PIN 4
+#define PWM_PIN 4     	// GPIO pin for PWM output
 #define PWM_MAX 1023	// For ESP8266 / ESP8285 maximal analog out is 1023
-#define ONEWIRE_PIN 2
-#define BUTTON_PIN 0
-#define WIFI_LED_PIN 5
+#define ONEWIRE_PIN 2   // GPIO pin for OneWire temperature sensor data signal
+#define BUTTON_PIN 0    // GPIO pin for user button 
+#define WIFI_LED_PIN 5  // GPIO pin for Wifi status led 
 
-// Fan Parameters:
+// Fan Parameter Defaults:
 #define T_MAX_SPEED 40 	// Temperature at which fan is at maximum speed
 #define T_MIN_SPEED 20 	// Minimum temperature for fan to run
 #define V_MAX 0.5 		// Maximum fan speed (from 0 to 1)
@@ -32,77 +32,99 @@ SignalLED led(WIFI_LED_PIN, SLED_OFF, false);
 char button0;
 float T_max_speed, T_min_speed, v_max;
 String html;
+bool ds_sensor_ok = false;
+uint8_t ds_address[8];
 
 DS18B20 ds(ONEWIRE_PIN);
 EnoughTimePassed etp_fan_update(FAN_UPDATE_INTERVAL);
 
-float speed(float T)
+// Function to calculate fan speed from measured temperature:
+float speed(float T, float _T_min_speed, float _T_max_speed, float _v_max)
 {
-	float v = (T-T_min_speed)/(T_max_speed-T_min_speed);
+	float v = (T-_T_min_speed)/(_T_max_speed-_T_min_speed);
 	if (v<0) v=0;
 	if (v>1) v=1;
-	return v*v_max;
+	return v*_v_max;
 }
 
+// Setup function executing once after reset:
 void setup() 
 {
 	Serial.begin(115200);
 	delay(500);
 	
+	// Set default parameter values for fan speed calculation:
 	T_max_speed = T_MAX_SPEED;
 	T_min_speed = T_MIN_SPEED;
 	v_max = V_MAX;
 
+	// Create WiHome object:
 	whc = new WiHomeComm(false, true);
+	// Attach config parameters we want to safe in the config file:
 	whc->add_config_parameter(&T_max_speed, "T_max_speed", "T @ vmax");
 	whc->add_config_parameter(&T_min_speed, "T_min_speed", "T @ vmin");
 	whc->add_config_parameter(&v_max, "v_max", "v max");
 
+	// Setup user button and status led pin and attacged to WiHome object:
 	whc->set_status_led(&led);
 	button0 = nbb.create(BUTTON_PIN);
 	whc->set_button(&nbb, button0, NBB_LONG_CLICK);
 
-	Serial.print("Devices: ");
-	Serial.println(ds.getNumberOfDevices());
-  	Serial.println("ds search:");
-	uint8_t is_ds=0;
-	while (!is_ds)
-	{
-		is_ds = ds.selectNext();
-		Serial.println(is_ds);
-	}
-	Serial.println(is_ds);
-	Serial.println("ds search done.");
-	Serial.println();
-	pinMode(PWM_PIN, OUTPUT); // Set PWM pin to output
+	// Searching for DS1820 sensor:
+	if (ds.getNumberOfDevices()==1)
+		if (ds.selectNext())
+		{	
+			ds.getAddress(ds_address);
+			ds_sensor_ok = true;
+		}
 
+	// Set PWM pin to output:
+	analogWriteRange(PWM_MAX);
+	pinMode(PWM_PIN, OUTPUT); 
+
+	// Initiate String for additional html info on website when connected to Wifi:
 	html = "";
+	// Attached html String to WiHome object:
 	whc->attach_html(&html);
 }
 
+// Loop function executing continuously:
 void loop() 
 {
-	//Serial.print("LOOP | ");
+	// Callback functions for buttons, WiHome, etc.:
 	nbb.check();
-	//Serial.print("LED | ");
  	whc->check();
- 	//Serial.print("WHC\n");
 
-	if ((etp_fan_update.enough_time()) && (whc->status()!=WIHOMECOMM_SOFTAP))		
+ 	// If enough time has passed since last fan speed update and we are not in SoftAP mode 
+ 	// and temperature sensor was found after reset:
+	if ((etp_fan_update.enough_time()) && (whc->status()!=WIHOMECOMM_SOFTAP) && ds_sensor_ok)		
 	{
-		float T = ds.getTempC();
-		float v = speed(T);
-		unsigned int pwm = round((1-v)*PWM_MAX);
-		analogWrite(PWM_PIN, pwm);
-		Serial.printf("T=%4.1fC TL=%4.1fC TH=%4.1fC v=%4.2f v_max: %4.2f pwm=%d\n", 
-			T, T_min_speed, T_max_speed, v, v_max, pwm);
-		html = "<br>Temperature: ";
-		html += String(T);
-		html += " &deg;C<br>Fan speed: ";
-		html += String(v,2);
-		html += "<br>";
+		// Verify sensor connection:
+		if (ds.select(ds_address))
+		{
+			// Read temperature from sensor:
+			float T = ds.getTempC();
+			// Calculate fan speed from temperature:
+			float v = speed(T, T_min_speed, T_max_speed, v_max);
+			// Convert fan speed to PWM pin value and write it to pin:
+			unsigned int pwm = round((1-v)*PWM_MAX);
+			analogWrite(PWM_PIN, pwm);
+			// Show status on serial interface:
+			Serial.printf("T=%4.1fC TL=%4.1fC TH=%4.1fC v=%4.2f v_max: %4.2f pwm=%d\n", 
+				T, T_min_speed, T_max_speed, v, v_max, pwm);
+			// Content for website to be displayed when connected to Wifi: 
+			html = "<br>Temperature: ";
+			html += String(T);
+			html += " &deg;C<br>Fan speed: ";
+			html += String(v,2);
+			html += "<br>";
+		}
+		else 
+		{
+			Serial.println("DS18B20 temperature sensor not found.");
+			html = "<br>Temperature sensor not found.<br>";
+			analogWrite(PWM_PIN, PWM_MAX);
+		}
 	}
-	//Serial.print("BEFORE DELAY | ");
 	delay(10);
-	//Serial.print("AFTER DELAY\n");
 }
