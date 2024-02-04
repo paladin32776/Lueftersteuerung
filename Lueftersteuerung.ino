@@ -12,8 +12,11 @@
 #include "NoBounceButtons.h"
 #include "SignalLED.h"
 
+#define VERSION "v1.0"
+
 #define PWM_PIN 4     	// GPIO pin for PWM output
 #define PWM_MAX 1023	// For ESP8266 / ESP8285 maximal analog out is 1023
+#define PWM_FREQ 10000	// For ESP8266 / ESP8285 maximal analog frequency is 40000
 #define ONEWIRE_PIN 2   // GPIO pin for OneWire temperature sensor data signal
 #define BUTTON_PIN 0    // GPIO pin for user button 
 #define WIFI_LED_PIN 5  // GPIO pin for Wifi status led 
@@ -31,9 +34,10 @@ SignalLED led(WIFI_LED_PIN, SLED_OFF, false);
 
 char button0;
 float T_max_speed, T_min_speed, v_max;
+bool ds_found = false;
+bool invert_pwm = false;
 String html;
-bool ds_sensor_ok = false;
-uint8_t ds_address[8];
+// uint8_t ds_address[8];
 
 DS18B20 ds(ONEWIRE_PIN);
 EnoughTimePassed etp_fan_update(FAN_UPDATE_INTERVAL);
@@ -64,6 +68,7 @@ void setup()
 	whc->add_config_parameter(&T_max_speed, "T_max_speed", "T @ vmax");
 	whc->add_config_parameter(&T_min_speed, "T_min_speed", "T @ vmin");
 	whc->add_config_parameter(&v_max, "v_max", "v max");
+	whc->add_config_parameter(&invert_pwm, "invert_pwm", "Invert PWM");
 
 	// Setup user button and status led pin and attacged to WiHome object:
 	whc->set_status_led(&led);
@@ -73,13 +78,12 @@ void setup()
 	// Searching for DS1820 sensor:
 	if (ds.getNumberOfDevices()==1)
 		if (ds.selectNext())
-		{	
-			ds.getAddress(ds_address);
-			ds_sensor_ok = true;
-		}
+			ds_found = true;
+			// ds.getAddress(ds_address);
 
 	// Set PWM pin to output:
 	analogWriteRange(PWM_MAX);
+	analogWriteFreq(PWM_FREQ);
 	pinMode(PWM_PIN, OUTPUT); 
 
 	// Initiate String for additional html info on website when connected to Wifi:
@@ -97,23 +101,27 @@ void loop()
 
  	// If enough time has passed since last fan speed update and we are not in SoftAP mode 
  	// and temperature sensor was found after reset:
-	if ((etp_fan_update.enough_time()) && (whc->status()!=WIHOMECOMM_SOFTAP) && ds_sensor_ok)		
+	if ((etp_fan_update.enough_time()) && (whc->status()!=WIHOMECOMM_SOFTAP))		
 	{
 		// Verify sensor connection:
-		if (ds.select(ds_address))
+		// if (ds.select(ds_address))
+		if (ds_found)
 		{
 			// Read temperature from sensor:
 			float T = ds.getTempC();
 			// Calculate fan speed from temperature:
 			float v = speed(T, T_min_speed, T_max_speed, v_max);
 			// Convert fan speed to PWM pin value and write it to pin:
-			unsigned int pwm = round((1-v)*PWM_MAX);
+			unsigned int pwm = round(((1-v)*(1-invert_pwm) + v*invert_pwm)*PWM_MAX);
 			analogWrite(PWM_PIN, pwm);
 			// Show status on serial interface:
 			Serial.printf("T=%4.1fC TL=%4.1fC TH=%4.1fC v=%4.2f v_max: %4.2f pwm=%d\n", 
 				T, T_min_speed, T_max_speed, v, v_max, pwm);
 			// Content for website to be displayed when connected to Wifi: 
-			html = "<br>Temperature: ";
+			html = "Software Version: ";
+			html += VERSION;
+			html += "<br>";
+			html += "<br>Temperature: ";
 			html += String(T);
 			html += " &deg;C<br>Fan speed: ";
 			html += String(v,2);
@@ -123,9 +131,12 @@ void loop()
 		{
 			// Error handling for disconnected sensor:
 			Serial.println("DS18B20 temperature sensor not found.");
-			html = "<br>Temperature sensor not found.<br>";
+			html = "Software Version: ";
+			html += VERSION;
+			html += "<br>";
+			html += "<br>Temperature sensor not found.<br>";
 			// Stop fans:
-			analogWrite(PWM_PIN, PWM_MAX);
+			analogWrite(PWM_PIN, PWM_MAX*(1-invert_pwm));
 		}
 	}
 	delay(10);
