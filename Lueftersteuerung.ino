@@ -82,9 +82,11 @@ void setup()
 
 void loop() 
 {
+	//Serial.print("LOOP | ");
 	nbb.check();
-	led.check();
+	//Serial.print("LED | ");
  	whc->check();
+ 	//Serial.print("WHC\n");
 
 	if ((etp_fan_update.enough_time()) && (whc->status()!=WIHOMECOMM_SOFTAP))		
 	{
@@ -100,5 +102,7 @@ void loop()
 		html += String(v,2);
 		html += "<br>";
 	}
+	//Serial.print("BEFORE DELAY | ");
 	delay(10);
+	//Serial.print("AFTER DELAY\n");
 }
