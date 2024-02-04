@@ -121,8 +121,10 @@ void loop()
 		}
 		else 
 		{
+			// Error handling for disconnected sensor:
 			Serial.println("DS18B20 temperature sensor not found.");
 			html = "<br>Temperature sensor not found.<br>";
+			// Stop fans:
 			analogWrite(PWM_PIN, PWM_MAX);
 		}
 	}
